@@ -51,7 +51,8 @@ public struct MarkdownView: View {
     }
 }
 
-
+#if os(iOS) || os(macOS)
 #Preview {
     MarkdownView("Hello [1](https://pubmed.ncbi.nlm.nih.gov/36209676/) [2](https://pubmed.ncbi.nlm.nih.gov/31462385/)")
 }
+#endif

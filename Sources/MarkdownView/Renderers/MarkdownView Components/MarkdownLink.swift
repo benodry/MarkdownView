@@ -1,3 +1,15 @@
+
+// Platform-conditional color and path types
+#if os(iOS)
+import UIKit
+typealias PlatformColor = UIColor
+typealias PlatformBezierPath = UIBezierPath
+#elseif os(macOS)
+import AppKit
+typealias PlatformColor = NSColor
+typealias PlatformBezierPath = NSBezierPath
+#endif
+
 //
 //  MarkdownLink.swift
 //  MarkdownView
@@ -110,22 +122,37 @@ extension LinkAttributer {
     }
 }
 
-
+#if os(iOS) || os(macOS)
 #Preview {
     MarkdownView("Hello [1](https://pubmed.ncbi.nlm.nih.gov/36209676/) [2](https://pubmed.ncbi.nlm.nih.gov/31462385/) how are you today? I am well thanks for asking. Why does this go to a new line when the text is long?")
         .padding()
 }
+#endif
 
 extension NSAttributedString.Key {
     static let roundedBackgroundColor = NSAttributedString.Key("MyRoundedBackgroundColor")
 }
-class RoundedTextView: UIView {
+
+#if os(iOS)
+import UIKit
+typealias PlatformView = UIView
+#elseif os(macOS)
+import AppKit
+typealias PlatformView = NSView
+#endif
+
+class RoundedTextView: PlatformView {
     var attributedText: NSAttributedString? {
         didSet {
-            setNeedsDisplay()
+            #if os(iOS)
+            self.setNeedsDisplay()
+            #elseif os(macOS)
+            self.needsDisplay = true
+            #endif
         }
     }
     
+    #if os(iOS)
     override func draw(_ rect: CGRect) {
         guard let attributedText = attributedText else { return }
         
@@ -134,6 +161,22 @@ class RoundedTextView: UIView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1.0, y: -1.0)
         
+        drawContent(in: context, attributedText: attributedText)
+    }
+    #elseif os(macOS)
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1.0, y: -1.0)
+        if let attributedText = attributedText {
+            drawContent(in: context, attributedText: attributedText)
+        }
+        context.restoreGState()
+    }
+    #endif
+    
+    private func drawContent(in context: CGContext, attributedText: NSAttributedString) {
         let path = CGPath(rect: bounds, transform: nil)
         let framesetter = CTFramesetterCreateWithAttributedString(attributedText)
         let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributedText.length), path, nil)
@@ -168,11 +211,17 @@ class RoundedTextView: UIView {
                 let runBounds = CGRect(x: lineOrigin.x + runOffset, y: lineOrigin.y - descent, width: width, height: height)
                 
                 let attributes = CTRunGetAttributes(run) as NSDictionary
-                if let bgColor = attributes[NSAttributedString.Key.roundedBackgroundColor.rawValue] as? UIColor {
+                if let bgColor = attributes[NSAttributedString.Key.roundedBackgroundColor.rawValue] as? PlatformColor {
                     // Draw rounded background
-                    let path = UIBezierPath(roundedRect: runBounds, cornerRadius: 6)
+                    #if os(iOS)
+                    let path = PlatformBezierPath(roundedRect: runBounds, cornerRadius: 6)
                     bgColor.setFill()
                     path.fill()
+                    #elseif os(macOS)
+                    let path = PlatformBezierPath(roundedRect: runBounds, cornerRadius: 6)
+                    bgColor.setFill()
+                    path.fill()
+                    #endif
                 }
                 
                 CTRunDraw(run, context, CFRange(location: 0, length: 0))
@@ -180,3 +229,36 @@ class RoundedTextView: UIView {
         }
     }
 }
+
+#if os(macOS)
+// Helper extension to create rounded rect NSBezierPath from CGRect
+extension NSBezierPath {
+    convenience init(roundedRect rect: CGRect, cornerRadius: CGFloat) {
+        self.init()
+        let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        self.append(NSBezierPath.pathFromCGPath(path))
+    }
+
+    private static func pathFromCGPath(_ cgPath: CGPath) -> NSBezierPath {
+        let path = NSBezierPath()
+        cgPath.applyWithBlock { elementPointer in
+            let element = elementPointer.pointee
+            switch element.type {
+            case .moveToPoint:
+                path.move(to: element.points[0])
+            case .addLineToPoint:
+                path.line(to: element.points[0])
+            case .addQuadCurveToPoint:
+                path.curve(to: element.points[1], controlPoint1: element.points[0], controlPoint2: element.points[0])
+            case .addCurveToPoint:
+                path.curve(to: element.points[2], controlPoint1: element.points[0], controlPoint2: element.points[1])
+            case .closeSubpath:
+                path.close()
+            @unknown default:
+                break
+            }
+        }
+        return path
+    }
+}
+#endif
